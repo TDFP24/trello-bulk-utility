@@ -183,6 +183,7 @@ function onOpen() {
     .addSubMenu(
       ui.createMenu("🚚 Card Mover")
         .addItem("Move Cards to Selected List", "moveCardsToSelectedList")
+        .addItem("Undo Last Card Move", "undoLastCardMove")
     )
     .addToUi(); // ✅ This applies the menu to the UI
 }

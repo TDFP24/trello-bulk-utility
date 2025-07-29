@@ -168,9 +168,10 @@ function moveCardsToSelectedList() {
   const boardMap = Object.fromEntries(boardData); // Board Name → ID
 
   const listData = listSheet.getRange(2, 1, listSheet.getLastRow() - 1, 3).getValues(); // [Board Name, List Name, List ID]
-  const listMap = {};
+  // Build a map: listId -> { boardName, boardId }
+  const listIdToBoard = {};
   for (let [bName, lName, lId] of listData) {
-    listMap[`${bName}|||${lName}`] = lId;
+    listIdToBoard[lId] = { boardName: bName, boardId: boardMap[bName] };
   }
 
   const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues(); // A2:F
@@ -190,14 +191,23 @@ function moveCardsToSelectedList() {
       continue;
     }
 
-    const listId = listMap[`${boardName}|||${listName}`];
-    if (!listId) {
-      statusCell.setValue("❌ List not found");
+    // Find the listId and destination boardId
+    let listId = null;
+    let destBoardId = null;
+    for (let [bName, lName, lId] of listData) {
+      if (bName === boardName && lName === listName) {
+        listId = lId;
+        destBoardId = boardMap[bName];
+        break;
+      }
+    }
+    if (!listId || !destBoardId) {
+      statusCell.setValue("❌ List or Board not found");
       continue;
     }
 
     try {
-      const moveUrl = `https://api.trello.com/1/cards/${cardId}?idList=${listId}&pos=${position}&key=${key}&token=${token}`;
+      const moveUrl = `https://api.trello.com/1/cards/${cardId}?idBoard=${destBoardId}&idList=${listId}&pos=${position}&key=${key}&token=${token}`;
       const res = UrlFetchApp.fetch(moveUrl, { method: "put" });
       const code = res.getResponseCode();
       if (code === 200) {
@@ -211,5 +221,27 @@ function moveCardsToSelectedList() {
   }
 
   SpreadsheetApp.getUi().alert("✅ Move process completed.");
+}
+
+function undoLastCardMove() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const undoSheet = ss.getSheetByName("Trello Undo Log");
+  if (!undoSheet) {
+    SpreadsheetApp.getUi().alert("No undo log found.");
+    return;
+  }
+  // Get the last row (last move)
+  const lastRow = undoSheet.getLastRow();
+  if (lastRow < 2) {
+    SpreadsheetApp.getUi().alert("No moves to undo.");
+    return;
+  }
+  const [cardId, boardId, listId, pos] = undoSheet.getRange(lastRow, 1, 1, 4).getValues()[0];
+  const { key, token } = getTrelloCredentials();
+  const moveUrl = `https://api.trello.com/1/cards/${cardId}?idList=${listId}&pos=${pos}&key=${key}&token=${token}`;
+  UrlFetchApp.fetch(moveUrl, { method: "put" });
+  // Optionally, remove the row from the log
+  undoSheet.deleteRow(lastRow);
+  SpreadsheetApp.getUi().alert("Undo complete: card moved back.");
 }
 
