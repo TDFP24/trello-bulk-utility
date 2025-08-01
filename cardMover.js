@@ -206,6 +206,24 @@ function moveCardsToSelectedList() {
       continue;
     }
 
+    // Ensure the undo log sheet exists
+    let undoSheet = ss.getSheetByName("Trello Undo Log");
+    if (!undoSheet) {
+      undoSheet = ss.insertSheet("Trello Undo Log");
+      undoSheet.getRange(1, 1, 1, 4).setValues([["Card ID", "Board ID", "List ID", "Pos"]]);
+    }
+
+    // Fetch the card's current board, list, and position before moving
+    try {
+      const cardInfoUrl = `https://api.trello.com/1/cards/${cardId}?fields=idBoard,idList,pos&key=${key}&token=${token}`;
+      const cardInfoRes = UrlFetchApp.fetch(cardInfoUrl);
+      const cardInfo = JSON.parse(cardInfoRes.getContentText());
+      undoSheet.appendRow([cardId, cardInfo.idBoard, cardInfo.idList, cardInfo.pos]);
+    } catch (err) {
+      // If logging fails, still attempt the move, but note the error in the status cell
+      statusCell.setValue(`⚠️ Undo log failed: ${err.message}`);
+    }
+
     try {
       const moveUrl = `https://api.trello.com/1/cards/${cardId}?idBoard=${destBoardId}&idList=${listId}&pos=${position}&key=${key}&token=${token}`;
       const res = UrlFetchApp.fetch(moveUrl, { method: "put" });
@@ -219,29 +237,4 @@ function moveCardsToSelectedList() {
       statusCell.setValue(`❌ ${err.message}`);
     }
   }
-
-  SpreadsheetApp.getUi().alert("✅ Move process completed.");
 }
-
-function undoLastCardMove() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const undoSheet = ss.getSheetByName("Trello Undo Log");
-  if (!undoSheet) {
-    SpreadsheetApp.getUi().alert("No undo log found.");
-    return;
-  }
-  // Get the last row (last move)
-  const lastRow = undoSheet.getLastRow();
-  if (lastRow < 2) {
-    SpreadsheetApp.getUi().alert("No moves to undo.");
-    return;
-  }
-  const [cardId, boardId, listId, pos] = undoSheet.getRange(lastRow, 1, 1, 4).getValues()[0];
-  const { key, token } = getTrelloCredentials();
-  const moveUrl = `https://api.trello.com/1/cards/${cardId}?idList=${listId}&pos=${pos}&key=${key}&token=${token}`;
-  UrlFetchApp.fetch(moveUrl, { method: "put" });
-  // Optionally, remove the row from the log
-  undoSheet.deleteRow(lastRow);
-  SpreadsheetApp.getUi().alert("Undo complete: card moved back.");
-}
-

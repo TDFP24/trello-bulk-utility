@@ -168,6 +168,7 @@ function onOpen() {
       ui.createMenu("📎 Attachment Manager")
         .addItem("Sync Attachments", "syncAttachmentsFromCardUrls")
         .addItem("Download Selected Attachments", "downloadSelectedAttachments")
+        .addItem("Clear Sheet Data", "clearAttachmentSheet")
     )
     .addSubMenu(
       ui.createMenu("🧹 Label Editor")

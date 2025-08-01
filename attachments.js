@@ -11,13 +11,12 @@ function initializeNewAttachmentSheet() {
   const sheet = ss.insertSheet(SHEET_ATTACHMENT_MANAGER);
 
   const headers = [
-    ["Card Title", "Trello Short URL", "✅ Download", "Attachment 1", "Attachment 2", "Attachment 3", "Attachment 4", "Attachment 5", "File Type", "Status"]
+    ["Card Title", "Trello Short URL", "Attachment 1", "Attachment 2", "Attachment 3", "Attachment 4", "Attachment 5", "File Type 1", "File Type 2", "File Type 3", "Status"]
   ];
-  sheet.getRange("A1:J1").setValues(headers);
+  sheet.getRange("A1:K1").setValues(headers);
   sheet.setFrozenRows(1);
 
   const maxRows = 100;
-  sheet.getRange(2, 3, maxRows).insertCheckboxes(); // Column C
 
   // ✅ Static dropdown for file types (includes .zip, .png, .jpg)
   const fileTypes = [".zip", ".png", ".jpg", ".pdf", ".cdr", ".ai"];
@@ -25,7 +24,7 @@ function initializeNewAttachmentSheet() {
     .requireValueInList(fileTypes, true)
     .setAllowInvalid(true)
     .build();
-  sheet.getRange(2, 9, maxRows).setDataValidation(rule); // Column I
+  sheet.getRange(2, 8, maxRows, 3).setDataValidation(rule); // Columns H, I, J
 
   SpreadsheetApp.getUi().alert("✅ Sheet has been initialized.");
 }
@@ -40,8 +39,9 @@ function syncAttachmentsFromCardUrls() {
   const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues(); // A2:B
   const { key, token } = getTrelloCredentials();
 
-  // Clear old data from D–I and Status column
-  sheet.getRange(2, 4, sheet.getLastRow() - 1, 6).clearContent();
+  // Clear old data from C–G and Status column (K)
+  sheet.getRange(2, 3, sheet.getLastRow() - 1, 5).clearContent(); // C-G
+  sheet.getRange(2, 11, sheet.getLastRow() - 1, 1).clearContent(); // K (Status)
 
   for (let i = 0; i < data.length; i++) {
     const [title, url] = data[i];
@@ -55,7 +55,7 @@ function syncAttachmentsFromCardUrls() {
       const attachments = JSON.parse(response.getContentText());
 
       if (!attachments.length) {
-        sheet.getRange(row, 10).setValue("ℹ️ No attachments");
+        sheet.getRange(row, 11).setValue("ℹ️ No attachments");
         continue;
       }
 
@@ -63,15 +63,15 @@ function syncAttachmentsFromCardUrls() {
       const rule = SpreadsheetApp.newDataValidation().requireValueInList(names, true).build();
 
       for (let j = 0; j < 5; j++) {
-        const cell = sheet.getRange(row, 4 + j);
+        const cell = sheet.getRange(row, 3 + j);
         cell.setValue(names[j] || "");
         cell.setDataValidation(rule);
       }
 
-      sheet.getRange(row, 10).setValue(`✅ ${attachments.length} found`);
+      sheet.getRange(row, 11).setValue(`✅ ${attachments.length} found`);
 
     } catch (e) {
-      sheet.getRange(row, 10).setValue(`❌ ${e.message}`);
+      sheet.getRange(row, 11).setValue(`❌ ${e.message}`);
     }
   }
 }
@@ -85,16 +85,15 @@ function downloadSelectedAttachments() {
 
   const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
   const { key, token } = getTrelloCredentials();
-  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues(); // A2:J
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 11).getValues(); // A2:K
 
   for (let i = 0; i < data.length; i++) {
     const rowNum = i + 2;
-    const [cardTitle, shortUrl, toDownload, att1, att2, att3, att4, att5, fileTypeRaw] = data[i];
-    const statusCell = sheet.getRange(rowNum, 10); // Column J
+    const [cardTitle, shortUrl, att1, att2, att3, att4, att5, fileType1, fileType2, fileType3] = data[i];
+    const statusCell = sheet.getRange(rowNum, 11); // Column K
 
     statusCell.setValue(""); // clear previous status
 
-    if (toDownload !== true) continue;
     if (!shortUrl) {
       statusCell.setValue("❌ Missing URL");
       continue;
@@ -119,20 +118,23 @@ function downloadSelectedAttachments() {
         continue;
       }
 
-      // Normalize inputs
-      const selectedFileType = (fileTypeRaw || "").toLowerCase().trim(); // e.g., ".cdr"
+      // Collect all specified file types (H, I, J)
+      const selectedFileTypes = [fileType1, fileType2, fileType3]
+        .filter(Boolean)
+        .map(type => type.toLowerCase().trim()); // e.g., [".cdr", ".zip", ".png"]
+      
       const selectedNames = [att1, att2, att3, att4, att5].filter(Boolean).map(name => name.trim());
 
       let targets = [];
 
-      if (selectedFileType) {
-        // 🔍 Match ALL Trello attachments with the given extension (Column I trumps dropdowns)
+      if (selectedFileTypes.length > 0) {
+        // 🔍 Match ALL Trello attachments with ANY of the specified extensions
         targets = attachments.filter(att => {
           const ext = att.name.slice(att.name.lastIndexOf(".")).toLowerCase();
-          return ext === selectedFileType;
+          return selectedFileTypes.includes(ext);
         });
       } else {
-        // 🎯 Match only those listed in D–H
+        // 🎯 Match only those listed in C–G
         targets = attachments.filter(att => selectedNames.includes(att.name));
       }
 
@@ -176,4 +178,36 @@ function downloadSelectedAttachments() {
   }
 
   SpreadsheetApp.getUi().alert("✅ Download process complete.");
+}
+
+/**
+ * 🗑️ Clear attachment sheet data while preserving dropdowns
+ */
+function clearAttachmentSheet() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_ATTACHMENT_MANAGER);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("❌ 'Trello Attachment Manager' sheet not found.");
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    SpreadsheetApp.getUi().alert("ℹ️ Sheet is already empty.");
+    return;
+  }
+
+  // Clear data while preserving dropdowns
+  // Columns to clear: A (Card Title), B (URL), C-G (Attachments), K (Status)
+  const numRows = lastRow - 1;
+  
+  // Clear Card Title and URL (A, B)
+  sheet.getRange(2, 1, numRows, 2).clearContent();
+  
+  // Clear Attachment columns (C-G)
+  sheet.getRange(2, 3, numRows, 5).clearContent();
+  
+  // Clear Status column (K)
+  sheet.getRange(2, 11, numRows, 1).clearContent();
+
+  SpreadsheetApp.getUi().alert(`✅ Cleared ${numRows} rows from 'Trello Attachment Manager'. Dropdowns preserved.`);
 }
